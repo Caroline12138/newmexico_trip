@@ -1,53 +1,64 @@
 import { useState } from 'react'
 import {
-  actionCount,
+  activityMapPoint,
   activityWebsite,
   days,
-  driveRouteMapPoints,
+  driveDurationLabel,
   driveRouteStops,
   formatDate,
-  mustDoCount,
+  formatDayWhere,
   restItem,
   scheduleItems,
-  totalMiles,
   trip,
+  tripDriveRoute,
   type DayPlan,
   type DriveStop,
   type MapPoint,
 } from './data/itinerary'
 import { DayMap } from './components/DayMap'
+import { preferredDriveUrl } from './lib/mapsNav'
+import { isTripDayToday, resolveTodayDay, todayIso } from './lib/today'
+import { usePwa } from './lib/usePwa'
 import './App.css'
 
 type View = 'general' | number
 
-function dayStats(day: DayPlan) {
-  const miles = totalMiles(day)
-  const actions = actionCount(day)
-  const must = mustDoCount(day)
-  const optional = actions - must
-  return { miles, actions, must, optional }
+function initialView(): View {
+  const iso = todayIso()
+  if (iso >= trip.startDate && iso <= trip.endDate) {
+    return resolveTodayDay().day
+  }
+  return 'general'
 }
 
-function DrivePath({
-  stops,
-  note,
-  miles,
-  legCount,
+function NavBtn({
+  lat,
+  lng,
+  label = '导航',
+  className = 'nav-btn',
 }: {
-  stops: DriveStop[]
-  note?: string
-  miles: number
-  legCount: number
+  lat: number
+  lng: number
+  label?: string
+  className?: string
 }) {
+  return (
+    <a
+      className={className}
+      href={preferredDriveUrl(lat, lng)}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {label}
+    </a>
+  )
+}
+
+function DrivePath({ stops }: { stops: DriveStop[] }) {
   if (stops.length === 0) return null
 
   return (
     <div className="drive-path">
-      <p className="drive-path__summary">
-        与下方地图编号一致 · {legCount} 段
-        {miles > 0 ? ` · ${miles} mi` : ''}
-        {note ? ` · ${note}` : ''}
-      </p>
       <ol className="drive-path__list">
         {stops.map((stop) => (
           <li key={`${stop.index}-${stop.name}`}>
@@ -61,11 +72,52 @@ function DrivePath({
             ) : null}
             <div className="drive-path__stop">
               <span className="drive-path__n">{stop.index}</span>
-              <span className="drive-path__name">{stop.name}</span>
+              <div className="drive-path__body">
+                <span className="drive-path__name">{stop.name}</span>
+                {typeof stop.lat === 'number' && typeof stop.lng === 'number' ? (
+                  <NavBtn lat={stop.lat} lng={stop.lng} className="nav-btn nav-btn--inline" />
+                ) : null}
+              </div>
             </div>
           </li>
         ))}
       </ol>
+    </div>
+  )
+}
+
+function StatusBar({
+  offline,
+  canInstall,
+  onInstall,
+  onJumpToday,
+  showTodayJump,
+}: {
+  offline: boolean
+  canInstall: boolean
+  onInstall: () => void
+  onJumpToday: () => void
+  showTodayJump: boolean
+}) {
+  if (!offline && !canInstall && !showTodayJump) return null
+
+  return (
+    <div className="status-bar" role="status">
+      {offline ? (
+        <span className="status-bar__chip status-bar__chip--warn">
+          离线 · 日程可用，地图需联网
+        </span>
+      ) : null}
+      {showTodayJump ? (
+        <button type="button" className="status-bar__action" onClick={onJumpToday}>
+          今天
+        </button>
+      ) : null}
+      {canInstall ? (
+        <button type="button" className="status-bar__action" onClick={onInstall}>
+          安装到主屏幕
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -86,38 +138,39 @@ function GeneralPage({ onSelectDay }: { onSelectDay: (day: number) => void }) {
             {formatDate(trip.startDate)} → {formatDate(trip.endDate)} · {days.length}{' '}
             天 {trip.nights} 晚
           </p>
-          <p className="glance__style">{trip.style}</p>
+          <p className="glance__style">自驾：{tripDriveRoute()}</p>
           <p className="glance__lodge">住宿：{trip.lodgingChain.join(' → ')}</p>
         </div>
 
         <div className="glance__block">
           <h2>每天去哪</h2>
           <div className="day-grid" aria-label="每日卡片">
-            {days.map((day) => (
-              <button
-                key={day.day}
-                type="button"
-                className="day-tile"
-                onClick={() => onSelectDay(day.day)}
-              >
-                <div className="day-tile__top">
-                  <span className="day-tile__id">D{day.day}</span>
-                  <span className="day-tile__date">
-                    {formatDate(day.date)} {day.weekday}
-                  </span>
-                </div>
-                <p className="day-tile__what">{day.headline}</p>
-                <p className="day-tile__where">{day.where.join(' → ')}</p>
-                {day.loadLabel ? (
-                  <p className="day-tile__load">{day.loadLabel}</p>
-                ) : null}
-                <p className="day-tile__meta">
-                  {day.startTime}–{day.endTime} · 车 {day.totalDrive}
-                  <br />
-                  住 {day.lodging}
-                </p>
-              </button>
-            ))}
+            {days.map((day) => {
+              const isToday = isTripDayToday(day)
+              return (
+                <button
+                  key={day.day}
+                  type="button"
+                  className={`day-tile${isToday ? ' is-today' : ''}`}
+                  onClick={() => onSelectDay(day.day)}
+                >
+                  <div className="day-tile__top">
+                    <span className="day-tile__id">
+                      D{day.day}
+                      {isToday ? ' · 今天' : ''}
+                    </span>
+                    <span className="day-tile__date">
+                      {formatDate(day.date)} {day.weekday}
+                    </span>
+                  </div>
+                  <p className="day-tile__what">{day.headline}</p>
+                  <p className="day-tile__where">{formatDayWhere(day)}</p>
+                  <p className="day-tile__meta">
+                    {day.startTime}–{day.endTime} · {driveDurationLabel(day)}
+                  </p>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -128,6 +181,7 @@ function GeneralPage({ onSelectDay }: { onSelectDay: (day: number) => void }) {
             heightClass="day-map__canvas day-map__canvas--trip"
             fitMaxZoom={8}
             staticMap
+            straightOnly
           />
         </div>
       </section>
@@ -142,15 +196,16 @@ function DayPage({
   day: DayPlan
   onBack: () => void
 }) {
-  const { miles } = dayStats(day)
   const schedule = scheduleItems(day)
   const rest = restItem(day)
   const landWhere = day.where.filter((name) => name !== 'SEA')
   const sameCity = landWhere.length <= 1
   const routeStops = driveRouteStops(day)
-  const routeMapPoints = driveRouteMapPoints(day)
-  const showRouteMap = !sameCity && routeMapPoints.length > 1
   const showDrives = routeStops.length > 0
+  const today = isTripDayToday(day)
+  const detailItems = schedule.filter(
+    (a) => a.detail && (a.kind === 'visit' || a.kind === 'meal'),
+  )
 
   return (
     <main className="page page--detail">
@@ -160,17 +215,16 @@ function DayPage({
         </button>
         <p className="detail-head__kicker">
           D{day.day} · {formatDate(day.date)} {day.weekday}
+          {today ? ' · 今天' : ''}
         </p>
         <h1 className="detail-head__title">{day.headline}</h1>
         <p className="detail-head__meta">
-          <span>{day.startTime}–{day.endTime}</span>
-          {!sameCity ? <span>开车 {day.totalDrive}</span> : null}
+          <span>
+            {day.startTime}–{day.endTime}
+          </span>
+          {!sameCity ? <span>开车 {driveDurationLabel(day)}</span> : null}
         </p>
-        <p className="detail-head__where">途经 {day.where.join(' → ')}</p>
-        {day.loadLabel ? (
-          <p className="detail-head__load">{day.loadLabel}</p>
-        ) : null}
-        {day.tip ? <p className="detail-head__tip">{day.tip}</p> : null}
+        <p className="detail-head__where">途经 {formatDayWhere(day)}</p>
       </header>
 
       <section className="section section--tight">
@@ -179,29 +233,36 @@ function DayPage({
           {schedule.map((activity, index) => {
             const heavy = activity.kind === 'visit' || activity.kind === 'meal'
             const site = activityWebsite(activity.title, day, activity.website)
+            const point = activityMapPoint(activity.title, day)
             return (
               <article
                 key={`${activity.title}-${index}`}
-                className={`plan-tile${heavy ? ' is-heavy' : ' is-light'}${
-                  activity.optional ? ' is-optional' : ''
-                }`}
+                className={`plan-tile${heavy ? ' is-heavy' : ' is-light'}`}
               >
                 <p className="plan-tile__time">
                   {activity.time ?? '时间灵活'}
                   {activity.duration ? ` · ${activity.duration}` : ''}
-                  {activity.optional ? ' · 可选' : ''}
                 </p>
                 <p className="plan-tile__title">{activity.title}</p>
-                {site ? (
-                  <a
-                    className="plan-tile__link"
-                    href={site}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    官网
-                  </a>
-                ) : null}
+                <div className="plan-tile__actions">
+                  {site ? (
+                    <a
+                      className="plan-tile__link"
+                      href={site}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      官网
+                    </a>
+                  ) : null}
+                  {point ? (
+                    <NavBtn
+                      lat={point.lat}
+                      lng={point.lng}
+                      className="nav-btn nav-btn--inline"
+                    />
+                  ) : null}
+                </div>
               </article>
             )
           })}
@@ -214,26 +275,42 @@ function DayPage({
         </div>
       </section>
 
-      {showDrives ? (
+      {detailItems.length > 0 ? (
         <section className="section section--tight">
-          <h2>分段车程</h2>
-          <DrivePath
-            stops={routeStops}
-            note={day.driveNote}
-            miles={miles}
-            legCount={day.drives.length}
-          />
+          <h2>景点详情</h2>
+          <div className="detail-notes">
+            {detailItems.map((activity, index) => (
+              <article
+                key={`detail-${activity.title}-${index}`}
+                className="detail-note"
+              >
+                {activity.theme ? (
+                  <p className="detail-note__theme">{activity.theme}</p>
+                ) : null}
+                <h3 className="detail-note__title">{activity.title}</h3>
+                <p className="detail-note__body">{activity.detail}</p>
+              </article>
+            ))}
+          </div>
         </section>
       ) : null}
 
-      {showRouteMap ? (
+      {day.suggestions && day.suggestions.length > 0 ? (
         <section className="section section--tight">
-          <h2>地图（编号同上）</h2>
-          <DayMap
-            points={routeMapPoints}
-            fitMaxZoom={12}
-            heightClass="day-map__canvas day-map__canvas--day"
-          />
+          <h2>本日建议</h2>
+          <p className="section-lead">除已安排外，顺路或天气备用可考虑：</p>
+          <ul className="day-suggestions">
+            {day.suggestions.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {showDrives ? (
+        <section className="section section--tight">
+          <h2>分段车程</h2>
+          <DrivePath stops={routeStops} />
         </section>
       ) : null}
     </main>
@@ -241,11 +318,23 @@ function DayPage({
 }
 
 function App() {
-  const [view, setView] = useState<View>('general')
+  const [view, setView] = useState<View>(initialView)
+  const { offline, canInstall, install } = usePwa()
   const current = typeof view === 'number' ? days.find((d) => d.day === view) : null
+  const todayDay = resolveTodayDay()
+  const inTrip =
+    todayIso() >= trip.startDate && todayIso() <= trip.endDate
+  const showTodayJump = inTrip && view !== todayDay.day
 
   return (
     <div className="app">
+      <StatusBar
+        offline={offline}
+        canInstall={canInstall}
+        onInstall={() => void install()}
+        onJumpToday={() => setView(todayDay.day)}
+        showTodayJump={showTodayJump}
+      />
       <nav className="tabs" aria-label="页面切换">
         <button
           type="button"
@@ -262,6 +351,7 @@ function App() {
             onClick={() => setView(day.day)}
           >
             D{day.day}
+            {isTripDayToday(day) ? '·今' : ''}
           </button>
         ))}
       </nav>

@@ -9,6 +9,7 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import type { MapPoint } from '../data/itinerary'
+import { preferredDriveUrl } from '../lib/mapsNav'
 import { fetchDrivingRoute, type LatLng } from '../lib/osrmRoute'
 import 'leaflet/dist/leaflet.css'
 
@@ -62,6 +63,8 @@ function markerLabel(name: string) {
 type DayMapProps = {
   points: MapPoint[]
   showRoute?: boolean
+  /** 不请求 OSRM，点与点之间画直线 */
+  straightOnly?: boolean
   heightClass?: string
   fitMaxZoom?: number
   staticMap?: boolean
@@ -70,6 +73,7 @@ type DayMapProps = {
 export function DayMap({
   points,
   showRoute = true,
+  straightOnly = false,
   heightClass = 'day-map__canvas',
   fitMaxZoom = 11,
   staticMap = false,
@@ -87,6 +91,12 @@ export function DayMap({
     if (!showRoute || points.length < 2) {
       setRoute(null)
       setRouteStatus('idle')
+      return
+    }
+
+    if (straightOnly) {
+      setRoute(null)
+      setRouteStatus('fallback')
       return
     }
 
@@ -116,7 +126,7 @@ export function DayMap({
     }
     // pointsKey captures coordinate identity; avoid refetch on new array refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointsKey, showRoute])
+  }, [pointsKey, showRoute, straightOnly])
 
   if (points.length === 0) {
     return <p className="map-empty">暂无地图点</p>
@@ -142,10 +152,10 @@ export function DayMap({
         className={heightClass}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · 路线 OSRM'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds points={points} route={route} maxZoom={fitMaxZoom} />
+        <FitBounds points={points} route={null} maxZoom={fitMaxZoom} />
         {showRoute && line && line.length > 1 ? (
           <Polyline
             positions={line}
@@ -153,7 +163,7 @@ export function DayMap({
               color: '#c4784a',
               weight: 4,
               opacity: 0.9,
-              dashArray: routeStatus === 'fallback' ? '6 8' : undefined,
+              dashArray: straightOnly || routeStatus === 'fallback' ? '6 8' : undefined,
             }}
           />
         ) : null}
@@ -172,9 +182,17 @@ export function DayMap({
                   <strong>
                     {n}. {label}
                   </strong>
+                  <br />
+                  <a
+                    href={preferredDriveUrl(point.lat, point.lng)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    导航
+                  </a>
                   {point.website ? (
                     <>
-                      <br />
+                      {' · '}
                       <a href={point.website} target="_blank" rel="noreferrer">
                         官网
                       </a>
@@ -186,7 +204,7 @@ export function DayMap({
           )
         })}
       </MapContainer>
-      {showRoute && points.length > 1 ? (
+      {showRoute && points.length > 1 && !straightOnly ? (
         <p className="day-map__hint" aria-live="polite">
           {routeStatus === 'loading'
             ? '正在加载沿道路线…'

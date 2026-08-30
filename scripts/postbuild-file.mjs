@@ -52,5 +52,6 @@ const singlePath = path.join(distDir, 'New-Mexico-Trip.html')
 fs.writeFileSync(singlePath, single)
 
 console.log('postbuild:')
-console.log('  - dist/index.html (for preview server)')
-console.log('  - dist/New-Mexico-Trip.html  ← 发给别人，用浏览器打开/双击')
+console.log('  - dist/index.html (for preview / PWA: npm run preview)')
+console.log('  - dist/New-Mexico-Trip.html  ← 单文件分享（无离线 SW）')
+console.log('  - dist/sw.js + manifest → 用本地服务器打开才能安装/离线')
